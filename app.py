@@ -33,7 +33,8 @@ st.markdown("""
 - "Courbe des **ventes sur Date**; **moyenne mobile 7**; **couleur par** Région"
 - "Tableau de la **somme des ventes par région**"
 - "Matrice de la **somme des ventes par région et description**"
-- "KPI de la **somme des ventes**; **titre: CA total**" """
+- "KPI de la **somme des ventes**; **titre: CA total**" 
+            """
 """)
 
 # ---------------------------------
