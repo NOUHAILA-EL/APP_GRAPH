@@ -18,7 +18,7 @@ st.title("Cap Visual Intelligence powered by GenAI")
 st.markdown("""
 **Upload** your dataset, **describe** the visual (EN/FR), then click **Generate chart**.
 
-""" **Examples (EN)**
+/* **Examples (EN)**
 - "Bar chart of **count of Description** grouped by **Region**; **sort descending by revenue and profit**"
 - "Line chart of **Sales over Date**; **rolling average 7**; **color by Region**"
 - "Pie (donut) of **sum of Sales by Region**; title: Sales share"
@@ -34,7 +34,7 @@ st.markdown("""
 - "Tableau de la **somme des ventes par région**"
 - "Matrice de la **somme des ventes par région et description**"
 - "KPI de la **somme des ventes**; **titre: CA total**" 
-            """
+            */
 """)
 
 # ---------------------------------
