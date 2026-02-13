@@ -16,7 +16,7 @@ st.set_page_config(page_title="Describe2Chart", page_icon="📊", layout="wide")
 st.title("Cap Visual Intelligence powered by GenAI")
 
 st.markdown("""
-Upload your dataset, **describe** the visual (EN/FR), then click **Generate chart**.
+**Upload** your dataset, **describe** the visual (EN/FR), then click **Generate chart**.
 
 **Examples (EN)**
 - "Bar chart of **count of Description** grouped by **Region**; **sort descending by revenue and profit**"
