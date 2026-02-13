@@ -15,8 +15,26 @@ import altair as alt
 st.set_page_config(page_title="Describe2Chart", page_icon="📊", layout="wide")
 st.title("Cap Visual Intelligence powered by GenAI")
 
-st.markdown("""
+st.markdown(""" 
+
 **Upload** your dataset, **describe** the visual (EN/FR), then click **Generate chart**.
+
+**Examples (EN)**
+- "Bar chart of **count of Description** grouped by **Region**; **sort descending by revenue and profit**"
+- "Line chart of **Sales over Date**; **rolling average 7**; **color by Region**"
+- "Pie (donut) of **sum of Sales by Region**; title: Sales share"
+- "Heatmap of **sum of Profit by Region and Description**"
+- "Table of **sum of Sales by Region**"
+- "Matrix of **sum of Sales by Region and Description**"
+- "KPI of **sum of Sales**; title: Total Sales"
+ 
+**Exemples (FR)**
+- "Un **camembert** de la **somme des ventes par région**"
+- "Barres du **nombre de Description** par **Région**; **tri descendant par bénéfice**"
+- "Courbe des **ventes sur Date**; **moyenne mobile 7**; **couleur par** Région"
+- "Tableau de la **somme des ventes par région**"
+- "Matrice de la **somme des ventes par région et description**"
+- "KPI de la **somme des ventes**; **titre: CA total**"
 """)
 
 # ---------------------------------
