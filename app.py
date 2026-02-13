@@ -13,7 +13,7 @@ import altair as alt
 # Streamlit page setup
 # ---------------------------------
 st.set_page_config(page_title="Describe2Chart", page_icon="📊", layout="wide")
-st.title("📊 Describe2Chart — Create a chart from your data + description")
+st.title("Cap Visual Intelligence powered by GenAI")
 
 st.markdown("""
 Upload your dataset, **describe** the visual (EN/FR), then click **Generate chart**.
