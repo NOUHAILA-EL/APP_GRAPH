@@ -1,6 +1,5 @@
 # app.py
 import re
-import io
 import pandas as pd
 import streamlit as st
 import altair as alt
@@ -9,16 +8,24 @@ st.set_page_config(page_title="Describe2Chart", page_icon="📈", layout="wide")
 st.title("📈 Describe2Chart – Create a graph from your data + description")
 
 st.markdown("""
-Upload your data and describe the chart you want.<br>
-**Examples**:
-- "Line chart of Sales over Month; color by Region; show markers"
-- "Stacked bar of Revenue by Region; sort descending; data labels"
-- "Scatter of CO2 vs Distance; size by Weight; color by Route"
-""", unsafe_allow_html=True)
+Upload your data and **describe** the chart you want.  
+Then click **Generate chart**.
 
+**Examples (EN):**
+- "Line chart of Sales over Date; color by Region; rolling average 7"
+- "Stacked bar of Revenue by Region; sort descending; data labels"
+- "Pie of sum of Sales by Region; title: Sales by Region"
+
+**Exemples (FR):**
+- "Je veux un **camembert** des **ventes** par **région**"
+- "Courbe des ventes sur la **date**; moyenne mobile 7; **couleur par** région"
+- "Histogramme du **profit**; **bins 20**; **titre: Distribution du profit**"
+""")
+
+# ----------------------------
+# 1) File upload
+# ----------------------------
 uploaded = st.file_uploader("Upload CSV or Excel", type=["csv", "xlsx", "xls"])
-desc = st.text_area("Describe the chart you want", height=120,
-                    placeholder="e.g., 'line chart of Sales over Month; color by Region; rolling average 7'")
 
 @st.cache_data
 def load_df(file):
@@ -32,73 +39,107 @@ def load_df(file):
     else:
         raise ValueError("Unsupported file type")
 
+# ----------------------------
+# Helpers
+# ----------------------------
+def normalize_text(t: str) -> str:
+    t = t.lower().strip()
+    # map a few French keywords to English equivalents used internally
+    fr2en = {
+        "camembert": "pie",
+        "diagramme en secteurs": "pie",
+        "secteurs": "pie",
+        "nuage de points": "scatter",
+        "courbe": "line",
+        "aire": "area",
+        "barres": "bar",
+        "empilé": "stacked",
+        "couleur par": "color by",
+        "couleur": "color",
+        "moyenne mobile": "rolling average",
+        "tri descendant": "sort desc",
+        "tri ascendant": "sort asc",
+        "titre": "title",
+        "somme de": "sum of",
+        "moyenne de": "avg of"
+    }
+    for fr, en in fr2en.items():
+        t = t.replace(fr, en)
+    # fix some punctuation spacing
+    t = re.sub(r"\s*:\s*", ": ", t)
+    return t
+
 def infer_chart_type(text):
-    t = text.lower()
+    t = text
+    if "stacked bar" in t or ("bar" in t and "stacked" in t): return "bar_stacked"
     if "line" in t: return "line"
-    if "stacked bar" in t: return "bar_stacked"
-    if "bar" in t: return "bar"
-    if "area" in t: return "area"
     if "scatter" in t or "bubble" in t: return "scatter"
-    if "hist" in t: return "hist"
-    if "box" in t: return "box"
+    if "area" in t: return "area"
+    if "hist" in t or "histogram" in t: return "hist"
+    if "box" in t or "boxplot" in t: return "box"
     if "pie" in t: return "pie"
     # defaults:
     if "over" in t or "trend" in t: return "line"
     return "bar"
 
-def find_column(candidates, cols):
-    # Find first column name that appears in text, fallback to heuristic by dtype
-    for c in candidates:
-        for col in cols:
-            if c.strip().lower() == str(col).lower():
-                return col
+def _find_exact_col(name, cols):
+    for col in cols:
+        if str(col).lower().strip() == name.lower().strip():
+            return col
     return None
 
-def extract_columns(text, cols, dtypes):
-    t = text.lower()
+def guess_columns_from_text(t, cols, dtypes):
+    # Parse patterns like:
+    # - "of Y over X"
+    # - "Y vs X"
+    # - "sum of Sales by Region"
+    m_over = re.search(r"of\s+(.+?)\s+over\s+([a-z0-9_ -]+)", t)
+    m_vs   = re.search(r"(.+?)\s+vs\s+([a-z0-9_ -]+)", t)
+    m_by   = re.search(r"(sum|avg|mean|median|max|min)\s+of\s+([a-z0-9_ -]+)\s+by\s+([a-z0-9_ -]+)", t)
 
-    # guess x by keywords
-    time_like = [c for c in cols if "date" in str(c).lower() or "time" in str(c).lower() or "month" in str(c).lower() or "year" in str(c).lower()]
-    num_like = [c for c in cols if pd.api.types.is_numeric_dtype(dtypes[c])]
-    cat_like = [c for c in cols if not pd.api.types.is_numeric_dtype(dtypes[c])]
+    x = y = color = size = None
 
-    # parse "of Y over X", "Y vs X"
-    m_over = re.search(r"of\s+(.+?)\s+over\s+([a-zA-Z0-9_ -]+)", t)
-    m_vs   = re.search(r"(.+?)\s+vs\s+([a-zA-Z0-9_ -]+)", t)
+    if m_by:
+        func, val, cat = m_by.groups()
+        y = _find_exact_col(val, cols)
+        x = _find_exact_col(cat, cols)
 
-    y_guess = None
-    x_guess = None
+    if m_over and (x is None or y is None):
+        y = y or _find_exact_col(m_over.group(1), cols)
+        x = x or _find_exact_col(m_over.group(2), cols)
 
-    if m_over:
-        y_guess = find_column([m_over.group(1)], cols)
-        x_guess = find_column([m_over.group(2)], cols)
-    elif m_vs:
-        y_guess = find_column([m_vs.group(1)], cols)
-        x_guess = find_column([m_vs.group(2)], cols)
+    if m_vs and (x is None or y is None):
+        y = y or _find_exact_col(m_vs.group(1), cols)
+        x = x or _find_exact_col(m_vs.group(2), cols)
 
-    # Fallbacks
-    if x_guess is None:
-        x_guess = time_like[0] if len(time_like) else (cat_like[0] if len(cat_like) else cols[0])
-    if y_guess is None:
-        y_guess = num_like[0] if len(num_like) else (cols[1] if len(cols) > 1 else cols[0])
+    # color by / group by / size by
+    for key in ["color by", "group by", "colour by"]:
+        m = re.search(fr"{key}\s+([a-z0-9_ -]+)", t)
+        if m and color is None:
+            cand = _find_exact_col(m.group(1), cols)
+            if cand: color = cand
 
-    # color/size/row/column
-    color = None; size = None
-    for key, var in [("color by", "color"), ("colour by", "color"), ("group by", "color")]:
-        m = re.search(fr"{key}\s+([a-zA-Z0-9_ -]+)", t)
-        if m:
-            cand = find_column([m.group(1)], cols)
-            if cand: color = cand; break
-
-    m = re.search(r"size by\s+([a-zA-Z0-9_ -]+)", t)
+    m = re.search(r"size by\s+([a-z0-9_ -]+)", t)
     if m:
-        cand = find_column([m.group(1)], cols)
+        cand = _find_exact_col(m.group(1), cols)
         if cand: size = cand
 
-    return x_guess, y_guess, color, size
+    # fallbacks based on types
+    num_like = [c for c in cols if pd.api.types.is_numeric_dtype(dtypes[c])]
+    cat_like = [c for c in cols if not pd.api.types.is_numeric_dtype(dtypes[c])]
+    time_like = [c for c in cols if any(k in str(c).lower() for k in ["date", "time", "month", "year"])]
+
+    if x is None:
+        x = (time_like[0] if time_like else (cat_like[0] if cat_like else cols[0]))
+    if y is None:
+        y = (num_like[0] if num_like else (cols[1] if len(cols) > 1 else cols[0]))
+    if color is None and len(cat_like) > 0:
+        # color is optional; leave None unless specified
+        pass
+    return x, y, color, size
 
 def parse_options(text):
-    t = text.lower()
+    t = text
     opts = {
         "stacked": "stack" in t,
         "markers": "marker" in t or "dot" in t,
@@ -111,61 +152,101 @@ def parse_options(text):
         "title": None,
         "theme": "dark" if "dark" in t else "light" if "light theme" in t else None
     }
-    m_roll = re.search(r"rolling average\s+(\d+)|moving average\s+(\d+)", t)
+    m_roll = re.search(r"(rolling average|moving average)\s+(\d+)", t)
     if m_roll:
-        opts["rolling"] = int([g for g in m_roll.groups() if g][0])
+        opts["rolling"] = int(m_roll.group(2))
 
     m_bins = re.search(r"bins?\s+(\d+)", t)
     if m_bins:
         opts["bins"] = int(m_bins.group(1))
 
-    m_agg = re.search(r"(sum|avg|mean|median|max|min)\s+of\s+([a-zA-Z0-9_ -]+)", t)
+    m_agg = re.search(r"(sum|avg|mean|median|max|min)\s+of\s+([a-z0-9_ -]+)", t)
     if m_agg:
         opts["agg"] = (m_agg.group(1), m_agg.group(2))
 
     m_title = re.search(r"title\s*:\s*(.+)$", t)
     if m_title:
         opts["title"] = m_title.group(1).strip()
-
     return opts
 
+def choose_default_for_pie(df, cols, dtypes):
+    cat_like = [c for c in cols if not pd.api.types.is_numeric_dtype(dtypes[c])]
+    num_like = [c for c in cols if pd.api.types.is_numeric_dtype(dtypes[c])]
+    # Prefer "Region" + first numeric (e.g., Sales)
+    cat = "Region" if "Region" in cols else (cat_like[0] if cat_like else None)
+    val = "Sales" if "Sales" in cols else (num_like[0] if num_like else None)
+    return cat, val
+
+# ----------------------------
+# 2) UI – description + controls
+# ----------------------------
+desc = st.text_area(
+    "Describe the chart you want (EN/FR supported)",
+    height=120,
+    placeholder="e.g., 'Je veux un camembert des ventes par région' or 'Line chart of Sales over Date; color by Region'"
+)
+
+# Prevent auto-render: require explicit click
+generate = st.button("Generate chart", type="primary", use_container_width=False)
+
+# ----------------------------
+# 3) Data preview section
+# ----------------------------
 if uploaded:
     try:
         df = load_df(uploaded)
         st.success(f"Loaded dataset with {df.shape[0]} rows and {df.shape[1]} columns.")
-        st.dataframe(df.head())
+        show_head_only = st.toggle("Preview only first 5 rows", value=False)
+        st.dataframe(df.head() if show_head_only else df, use_container_width=True, height=300)
+    except Exception as e:
+        st.error(f"Error loading file: {e}")
+        df = None
+else:
+    df = None
 
-        if desc.strip():
-            chart_type = infer_chart_type(desc)
-            x, y, color, size = extract_columns(desc, df.columns.tolist(), df.dtypes.to_dict())
-            opts = parse_options(desc)
+# ----------------------------
+# 4) Render chart only on click
+# ----------------------------
+if generate:
+    if df is None:
+        st.warning("Please upload a dataset first.")
+    elif not desc or not desc.strip():
+        st.info("Please describe your chart above, then click Generate.")
+    else:
+        try:
+            t = normalize_text(desc)
+            chart_type = infer_chart_type(t)
+            x, y, color, size = guess_columns_from_text(t, df.columns.tolist(), df.dtypes.to_dict())
+            opts = parse_options(t)
 
             work = df.copy()
 
-            # optional aggregation
-            if opts["agg"]:
+            # For pie charts: if not explicit, choose defaults
+            if chart_type == "pie":
+                # If the user's description did not provide a clear category/value
+                if not pd.api.types.is_numeric_dtype(work[y]) or pd.api.types.is_numeric_dtype(work[x]):
+                    cat, val = choose_default_for_pie(work, work.columns.tolist(), work.dtypes.to_dict())
+                    if cat and val:
+                        x, y = cat, val
+
+            # Optional aggregation from description (e.g., "sum of Sales by Region")
+            if opts["agg"] and x in work.columns:
                 func, col = opts["agg"]
-                col_match = next((c for c in df.columns if c.lower() == col.lower()), None)
+                col_match = next((c for c in work.columns if c.lower() == col.lower()), None)
                 if col_match:
                     agg_map = {"avg":"mean", "mean":"mean", "sum":"sum", "median":"median", "max":"max", "min":"min"}
                     f = agg_map.get(func, func)
-                    if x in work.columns and col_match in work.columns:
-                        work = work.groupby(x, as_index=False)[col_match].agg(f)
-                        y = col_match
+                    work = work.groupby(x, as_index=False)[col_match].agg(f)
+                    y = col_match
 
-            # optional rolling average
+            # Optional rolling average (for numeric y)
             if opts["rolling"] and pd.api.types.is_numeric_dtype(work[y]):
-                work = work.sort_values(by=x)
+                if pd.api.types.is_datetime64_any_dtype(work[x]) or "date" in str(x).lower():
+                    work = work.sort_values(by=x)
                 work[f"{y}_rolling_{opts['rolling']}"] = work[y].rolling(opts["rolling"], min_periods=1).mean()
                 y = f"{y}_rolling_{opts['rolling']}"
 
-            # Build chart
-            enc = {}
-            if chart_type in ["bar", "bar_stacked", "area"]:
-                enc["x"] = alt.X(x, sort="-y" if opts["sort_desc"] else "y" if opts["sort_asc"] else None)
-            else:
-                enc["x"] = alt.X(x)
-
+            # Build chart with Altair
             if chart_type == "hist":
                 bins = opts["bins"] or 30
                 chart = alt.Chart(work).mark_bar().encode(
@@ -195,15 +276,17 @@ if uploaded:
                     tooltip=list(work.columns)
                 )
             elif chart_type in ["bar", "bar_stacked"]:
-                mark = alt.MarkDef(type="bar")
-                chart = alt.Chart(work).mark_bar().encode(
-                    x=x, y=y,
-                    color=color if color else alt.value("#4C78A8"),
-                    tooltip=list(work.columns),
-                    order=y
-                )
+                enc = {
+                    "x": alt.X(x, sort="-y" if opts["sort_desc"] else ("y" if opts["sort_asc"] else None)),
+                    "y": y,
+                    "tooltip": list(work.columns)
+                }
+                if color:
+                    enc["color"] = color
+                chart = alt.Chart(work).mark_bar().encode(**enc)
                 if chart_type == "bar_stacked" or opts["stacked"]:
-                    chart = chart.encode(x=x, y=y, color=color).transform_aggregate(total=f"sum({y})", groupby=[x, color] if color else [x])
+                    # Altair stacks by default if color provided; keep as-is
+                    pass
             elif chart_type == "area":
                 chart = alt.Chart(work).mark_area().encode(
                     x=x, y=y,
@@ -211,11 +294,11 @@ if uploaded:
                     tooltip=list(work.columns)
                 )
             elif chart_type == "pie":
-                # requires categorical + numeric
-                cat = color or x
-                val = y
+                cat = color or x  # category
+                val = y           # value
                 if not pd.api.types.is_numeric_dtype(work[val]):
                     st.warning("Pie chart needs a numeric value column for sizes. Try 'sum of <Value> by <Category>'.")
+                    chart = None
                 else:
                     chart = alt.Chart(work).mark_arc().encode(
                         theta=alt.Theta(field=val, type="quantitative"),
@@ -225,16 +308,12 @@ if uploaded:
             else:
                 chart = alt.Chart(work).mark_bar().encode(x=x, y=y)
 
-            if opts["labels"] and chart_type not in ["pie", "hist", "box"]:
-                text = chart.mark_text(align='center', baseline='bottom', dy=-5).encode(text=y)
-                chart = chart + text
-
-            if opts["theme"] == "dark":
-                st.checkbox("Dark theme requested in description", value=True, disabled=True)
-                st.write("Use Streamlit settings or a custom theme for full dark mode.")
-            title = opts["title"] or f"{chart_type.capitalize()} of {y} by {x}"
-            st.subheader("Chart")
-            st.altair_chart(chart.properties(width='container', height=420, title=title), use_container_width=True)
+            if chart is not None:
+                title = opts["title"] or f"{chart_type.capitalize()} of {y} by {x}"
+                st.subheader("Chart")
+                st.altair_chart(chart.properties(width='container', height=420, title=title), use_container_width=True)
+            else:
+                st.info("Adjust your description and click Generate again.")
 
             st.download_button(
                 "Download chart data as CSV",
@@ -242,9 +321,5 @@ if uploaded:
                 file_name="chart_data.csv",
                 mime="text/csv"
             )
-        else:
-            st.info("Describe the chart you want in the text area above.")
-    except Exception as e:
-        st.error(f"Error: {e}")
-else:
-    st.info("Upload a CSV or Excel file to get started.")
+        except Exception as e:
+            st.error(f"Could not build the chart: {e}")
