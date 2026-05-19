@@ -1,223 +1,84 @@
-import streamlit as st
-import pandas as pd
-import altair as alt
+# =========================
+# ✅ AI MODE (UPDATED)
+# =========================
+elif mode == "AI Mode":
 
-# ---------------------------
-# PAGE CONFIG
-# ---------------------------
-st.set_page_config(page_title="Cap Visual Intelligence", layout="wide")
+    st.subheader("Describe your chart")
 
-st.title("Cap Visual Intelligence powered by GenAI")
-st.write("Upload your dataset, then choose Guided Mode or AI Mode.")
+    st.markdown("""
+Upload your dataset, describe the visual (EN/FR), then click Generate chart.
 
-# ---------------------------
-# LOAD DATA
-# ---------------------------
-uploaded = st.file_uploader("Upload CSV file", type=["csv"])
+### 📘 Examples (EN)
+- Bar chart of count of Description grouped by Region; sort descending by revenue and profit  
+- Line chart of Sales over Date; rolling average 7; color by Region  
+- Pie (donut) of sum of Sales by Region; title: Sales share  
+- Heatmap of sum of Profit by Region and Description  
+- Table of sum of Sales by Region  
+- Matrix of sum of Sales by Region and Description  
+- KPI of sum of Sales; title: Total Sales  
 
-@st.cache_data
-def load_data(file):
-    return pd.read_csv(file)
+### 📗 Exemples (FR)
+- Un camembert de la somme des ventes par région  
+- Barres du nombre de Description par Région; tri descendant par bénéfice  
+- Courbe des ventes sur Date; moyenne mobile 7; couleur par Région  
+- Tableau de la somme des ventes par région  
+- Matrice de la somme des ventes par région et description  
+- KPI de la somme des ventes; titre: CA total  
+""")
 
+    # ✅ Predefined examples dropdown
+    example_choice = st.selectbox(
+        "Choose an example (optional)",
+        [
+            "",
+            "Bar chart of count of Description grouped by Region; sort descending by revenue and profit",
+            "Line chart of Sales over Date; rolling average 7; color by Region",
+            "Pie of sum of Sales by Region",
+            "Heatmap of sum of Profit by Region and Description",
+            "Table of sum of Sales by Region",
+            "Matrix of sum of Sales by Region and Description",
+            "KPI of sum of Sales"
+        ]
+    )
 
-# ---------------------------
-# AI INTERPRETATION
-# ---------------------------
-def interpret_request(desc, df):
-    desc = desc.lower()
+    # ✅ Text input (auto-filled if example selected)
+    if "ai_input" not in st.session_state:
+        st.session_state.ai_input = ""
 
-    spec = {
-        "chart_type": "Bar",
-        "metric": None,
-        "dimension": None,
-        "aggregation": "sum"
-    }
+    if example_choice:
+        st.session_state.ai_input = example_choice
 
-    # Chart type
-    if "line" in desc:
-        spec["chart_type"] = "Line"
-    elif "pie" in desc or "camembert" in desc:
-        spec["chart_type"] = "Pie"
+    desc = st.text_area("Your request", value=st.session_state.ai_input)
 
-    # Synonyms
-    synonyms = {
-        "revenue": "Sales",
-        "ventes": "Sales",
-        "profit": "Profit",
-        "bénéfice": "Profit",
-        "region": "Region",
-        "région": "Region",
-        "description": "Description"
-    }
+    # ✅ Generate
+    if st.button("Generate chart"):
 
-    for key, val in synonyms.items():
-        if key in desc:
-            desc = desc.replace(key, val.lower())
-
-    # Aggregation detection
-    if "count" in desc or "nombre" in desc:
-        spec["aggregation"] = "count"
-    elif "mean" in desc:
-        spec["aggregation"] = "mean"
-    elif "sum" in desc or "total" in desc:
-        spec["aggregation"] = "sum"
-
-    # Detect columns
-    for col in df.columns:
-        if col.lower() in desc:
-            if spec["metric"] is None:
-                spec["metric"] = col
-            else:
-                spec["dimension"] = col
-
-    # Fix: if metric is text → use count
-    if spec["metric"] and not pd.api.types.is_numeric_dtype(df[spec["metric"]]):
-        spec["aggregation"] = "count"
-
-    return spec
-
-
-# ---------------------------
-# PROCESS DATA
-# ---------------------------
-def process_data(df, metric, dimension, aggregation):
-
-    if aggregation == "count":
-        data = df.groupby(dimension)[metric].count().reset_index(name="value")
-
-    elif aggregation == "mean":
-        data = df.groupby(dimension)[metric].mean().reset_index(name="value")
-
-    else:  # sum
-        data = df.groupby(dimension)[metric].sum().reset_index(name="value")
-
-    return data
-
-
-# ---------------------------
-# RENDER CHART
-# ---------------------------
-def render_chart(chart_type, data, x, y):
-
-    if chart_type == "Bar":
-        chart = alt.Chart(data).mark_bar().encode(
-            x=alt.X(x, sort="-y"),
-            y=y,
-            tooltip=[x, y]
-        )
-
-    elif chart_type == "Line":
-        chart = alt.Chart(data).mark_line(point=True).encode(
-            x=x,
-            y=y,
-            tooltip=[x, y]
-        )
-
-    elif chart_type == "Pie":
-        chart = alt.Chart(data).mark_arc().encode(
-            theta=y,
-            color=x,
-            tooltip=[x, y]
-        )
-
-    else:
-        chart = alt.Chart(data).mark_bar().encode(x=x, y=y)
-
-    return chart
-
-
-# ---------------------------
-# MAIN APP
-# ---------------------------
-if uploaded:
-
-    df = load_data(uploaded)
-
-    st.subheader("Dataset Preview")
-    st.dataframe(df.head())
-
-    # Mode selection
-    mode = st.radio("Choose Mode", ["Guided Mode", "AI Mode"])
-
-    # =========================
-    # ✅ GUIDED MODE
-    # =========================
-    if mode == "Guided Mode":
-
-        st.subheader("Build your chart manually")
-
-        chart_type = st.selectbox(
-            "Chart Type",
-            ["Bar", "Line", "Pie"]
-        )
-
-        numeric_cols = df.select_dtypes(include="number").columns.tolist()
-        categorical_cols = df.select_dtypes(exclude="number").columns.tolist()
-
-        if len(numeric_cols) == 0:
-            st.error("No numeric columns found in dataset")
-        elif len(categorical_cols) == 0:
-            st.error("No categorical columns found in dataset")
+        if not desc.strip():
+            st.warning("Please enter a description")
         else:
-            metric = st.selectbox("Metric (Y-axis)", numeric_cols)
-            dimension = st.selectbox("Dimension (X-axis)", categorical_cols)
+            spec = interpret_request(desc, df)
 
-            aggregation = st.selectbox(
-                "Aggregation",
-                ["sum", "mean", "count"]
-            )
+            st.subheader("AI Interpretation")
+            st.json(spec)
 
-            if st.button("Generate chart"):
-
-                data = process_data(df, metric, dimension, aggregation)
-
-                st.success("✅ Chart created successfully")
-
-                chart = render_chart(chart_type, data, dimension, "value")
-                st.altair_chart(chart, use_container_width=True)
-
-                st.dataframe(data)
-
-    # =========================
-    # ✅ AI MODE
-    # =========================
-    elif mode == "AI Mode":
-
-        st.subheader("Describe your chart")
-
-        desc = st.text_area("Example: bar chart of sales by region")
-
-        if st.button("Generate chart"):
-
-            if not desc.strip():
-                st.warning("Please enter a description")
+            if not spec["metric"] or not spec["dimension"]:
+                st.error("❌ Could not clearly interpret your request")
             else:
-                spec = interpret_request(desc, df)
+                data = process_data(
+                    df,
+                    spec["metric"],
+                    spec["dimension"],
+                    spec["aggregation"]
+                )
 
-                st.subheader("AI Interpretation")
-                st.json(spec)
+                chart = render_chart(
+                    spec["chart_type"],
+                    data,
+                    spec["dimension"],
+                    "value"
+                )
 
-                if not spec["metric"] or not spec["dimension"]:
-                    st.error("❌ Could not clearly interpret your request")
-                else:
-                    data = process_data(
-                        df,
-                        spec["metric"],
-                        spec["dimension"],
-                        spec["aggregation"]
-                    )
+                st.success("✅ Chart generated successfully")
 
-                    chart = render_chart(
-                        spec["chart_type"],
-                        data,
-                        spec["dimension"],
-                        "value"
-                    )
-
-                    st.success("✅ Chart generated")
-                    st.altair_chart(chart, use_container_width=True)
-
-                    st.dataframe(data)
-
-else:
-    st.info("Upload a dataset to start")
+                st.altair_chart(chart, use_container_width=True)
+                st.dataframe(data)
