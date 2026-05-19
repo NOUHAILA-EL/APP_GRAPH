@@ -1,4 +1,5 @@
-import streamlit as stimport streamlit as as pd
+import streamlit as st
+import pandas as pd
 import altair as alt
 
 # ---------------------------
@@ -7,7 +8,7 @@ import altair as alt
 st.set_page_config(page_title="Cap Visual Intelligence", layout="wide")
 
 st.title("Cap Visual Intelligence powered by GenAI")
-st.write("Upload your dataset, then either describe your chart or build it manually.")
+st.write("Upload your dataset, then choose Guided Mode or AI Mode.")
 
 # ---------------------------
 # LOAD DATA
@@ -18,11 +19,11 @@ uploaded = st.file_uploader("Upload CSV file", type=["csv"])
 def load_data(file):
     return pd.read_csv(file)
 
+
 # ---------------------------
 # AI INTERPRETATION
 # ---------------------------
 def interpret_request(desc, df):
-
     desc = desc.lower()
 
     spec = {
@@ -49,11 +50,11 @@ def interpret_request(desc, df):
         "description": "Description"
     }
 
-    for k, v in synonyms.items():
-        if k in desc:
-            desc = desc.replace(k, v.lower())
+    for key, val in synonyms.items():
+        if key in desc:
+            desc = desc.replace(key, val.lower())
 
-    # Aggregation
+    # Aggregation detection
     if "count" in desc or "nombre" in desc:
         spec["aggregation"] = "count"
     elif "mean" in desc:
@@ -61,7 +62,7 @@ def interpret_request(desc, df):
     elif "sum" in desc or "total" in desc:
         spec["aggregation"] = "sum"
 
-    # Detect metric & dimension
+    # Detect columns
     for col in df.columns:
         if col.lower() in desc:
             if spec["metric"] is None:
@@ -69,7 +70,7 @@ def interpret_request(desc, df):
             else:
                 spec["dimension"] = col
 
-    # Fix: text → count
+    # Fix: if metric is text → use count
     if spec["metric"] and not pd.api.types.is_numeric_dtype(df[spec["metric"]]):
         spec["aggregation"] = "count"
 
@@ -87,7 +88,7 @@ def process_data(df, metric, dimension, aggregation):
     elif aggregation == "mean":
         data = df.groupby(dimension)[metric].mean().reset_index(name="value")
 
-    else:
+    else:  # sum
         data = df.groupby(dimension)[metric].sum().reset_index(name="value")
 
     return data
@@ -100,7 +101,7 @@ def render_chart(chart_type, data, x, y):
 
     if chart_type == "Bar":
         chart = alt.Chart(data).mark_bar().encode(
-            x=alt.X(x, sort='-y'),
+            x=alt.X(x, sort="-y"),
             y=y,
             tooltip=[x, y]
         )
@@ -145,15 +146,18 @@ if uploaded:
 
         st.subheader("Build your chart manually")
 
-        chart_type = st.selectbox("Chart Type", ["Bar", "Line", "Pie"])
+        chart_type = st.selectbox(
+            "Chart Type",
+            ["Bar", "Line", "Pie"]
+        )
 
         numeric_cols = df.select_dtypes(include="number").columns.tolist()
         categorical_cols = df.select_dtypes(exclude="number").columns.tolist()
 
-        if not numeric_cols:
-            st.error("No numeric columns available")
-        elif not categorical_cols:
-            st.error("No categorical columns available")
+        if len(numeric_cols) == 0:
+            st.error("No numeric columns found in dataset")
+        elif len(categorical_cols) == 0:
+            st.error("No categorical columns found in dataset")
         else:
             metric = st.selectbox("Metric (Y-axis)", numeric_cols)
             dimension = st.selectbox("Dimension (X-axis)", categorical_cols)
@@ -164,9 +168,10 @@ if uploaded:
             )
 
             if st.button("Generate chart"):
+
                 data = process_data(df, metric, dimension, aggregation)
 
-                st.success("✅ Chart created")
+                st.success("✅ Chart created successfully")
 
                 chart = render_chart(chart_type, data, dimension, "value")
                 st.altair_chart(chart, use_container_width=True)
@@ -176,7 +181,7 @@ if uploaded:
     # =========================
     # ✅ AI MODE
     # =========================
-    else:
+    elif mode == "AI Mode":
 
         st.subheader("Describe your chart")
 
@@ -193,7 +198,7 @@ if uploaded:
                 st.json(spec)
 
                 if not spec["metric"] or not spec["dimension"]:
-                    st.error("❌ Could not understand request clearly")
+                    st.error("❌ Could not clearly interpret your request")
                 else:
                     data = process_data(
                         df,
