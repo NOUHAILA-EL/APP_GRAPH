@@ -8,8 +8,8 @@ import altair as alt
 st.set_page_config(page_title="Cap Visual Intelligence", layout="wide")
 
 st.title("Cap Visual Intelligence powered by GenAI")
-st.write("Upload your dataset, describe the visual, then click Generate.")
 
+st.write("Upload dataset, choose guided mode OR describe the chart.")
 
 # ---------------------------
 # LOAD DATA
@@ -20,167 +20,104 @@ uploaded = st.file_uploader("Upload CSV file", type=["csv"])
 def load_data(file):
     return pd.read_csv(file)
 
+
 # ---------------------------
-# INTERPRET REQUEST (SMART)
+# AI INTERPRETATION (SIMPLE)
 # ---------------------------
 def interpret_request(desc, df):
+
     desc = desc.lower()
 
-    cols = df.columns.tolist()
-
     spec = {
-        "chart_type": "bar",
+        "chart_type": "Bar",
         "metric": None,
-        "aggregation": "sum",
         "dimension": None,
-        "sort": []
+        "aggregation": "sum"
     }
 
-    # Chart detection
+    # chart type
     if "line" in desc:
-        spec["chart_type"] = "line"
+        spec["chart_type"] = "Line"
     elif "pie" in desc or "camembert" in desc:
-        spec["chart_type"] = "pie"
-    elif "scatter" in desc:
-        spec["chart_type"] = "scatter"
-    elif "heatmap" in desc:
-        spec["chart_type"] = "heatmap"
-    else:
-        spec["chart_type"] = "bar"
+        spec["chart_type"] = "Pie"
 
-    # Synonyms
+    # synonyms
     synonyms = {
         "revenue": "Sales",
         "ventes": "Sales",
         "profit": "Profit",
         "bénéfice": "Profit",
-        "région": "Region",
         "region": "Region",
+        "région": "Region",
         "description": "Description"
     }
 
-    for key, val in synonyms.items():
-        if key in desc:
-            desc = desc.replace(key, val.lower())
+    for k, v in synonyms.items():
+        if k in desc:
+            desc = desc.replace(k, v.lower())
 
-    # Aggregation
-    if "count" in desc or "nombre" in desc:
+    # aggregation
+    if "count" in desc:
         spec["aggregation"] = "count"
-    elif "average" in desc or "mean" in desc:
+    elif "mean" in desc:
         spec["aggregation"] = "mean"
     elif "sum" in desc or "total" in desc:
         spec["aggregation"] = "sum"
 
-    # Metric detection
-    for col in cols:
+    # detect columns
+    for col in df.columns:
         if col.lower() in desc:
-            spec["metric"] = col
+            if spec["metric"] is None:
+                spec["metric"] = col
+            else:
+                spec["dimension"] = col
 
-    # ⚡ Fix: text column → count
+    # fix text aggregation
     if spec["metric"] and not pd.api.types.is_numeric_dtype(df[spec["metric"]]):
         spec["aggregation"] = "count"
-
-    # Dimension
-    for col in cols:
-        if col.lower() in desc and col != spec["metric"]:
-            spec["dimension"] = col
-            break
-
-    # Sorting
-    if "sort" in desc or "descending" in desc:
-        if "sales" in desc:
-            spec["sort"].append(("Sales", False))
-        if "profit" in desc:
-            spec["sort"].append(("Profit", False))
 
     return spec
 
 
 # ---------------------------
-# VALIDATION
-# ---------------------------
-def validate_spec(spec, df):
-    errors = []
-
-    if not spec["metric"]:
-        errors.append("No metric detected")
-
-    if spec["chart_type"] in ["bar", "line", "pie"] and not spec["dimension"]:
-        errors.append("No dimension detected")
-
-    if spec["aggregation"] != "count":
-        if not pd.api.types.is_numeric_dtype(df[spec["metric"]]):
-            errors.append("Metric must be numeric")
-
-    if spec["chart_type"] == "pie":
-        if spec["aggregation"] != "count" and not pd.api.types.is_numeric_dtype(df[spec["metric"]]):
-            errors.append("Pie requires numeric metric")
-
-    return errors
-
-
-# ---------------------------
 # PROCESS DATA
 # ---------------------------
-def process_data(df, spec):
-    metric = spec["metric"]
-    dim = spec["dimension"]
-    agg = spec["aggregation"]
+def process_data(df, metric, dimension, aggregation):
 
-    if agg == "count":
-        grouped = df.groupby(dim)[metric].count().reset_index(name=f"count_{metric}")
-        y = f"count_{metric}"
+    if aggregation == "count":
+        data = df.groupby(dimension)[metric].count().reset_index(name="value")
+
+    elif aggregation == "mean":
+        data = df.groupby(dimension)[metric].mean().reset_index(name="value")
+
     else:
-        grouped = df.groupby(dim)[metric].agg(agg).reset_index(name=f"{agg}_{metric}")
-        y = f"{agg}_{metric}"
+        data = df.groupby(dimension)[metric].sum().reset_index(name="value")
 
-    # Sorting
-    for col, asc in spec["sort"]:
-        if col in grouped.columns:
-            grouped = grouped.sort_values(by=col, ascending=asc)
-
-    return grouped, dim, y
+    return data
 
 
 # ---------------------------
 # RENDER CHART
 # ---------------------------
-def render_chart(spec, data, x, y):
-    chart_type = spec["chart_type"]
+def render_chart(chart_type, data, x, y):
 
-    if chart_type == "bar":
+    if chart_type == "Bar":
         chart = alt.Chart(data).mark_bar().encode(
-            x=alt.X(x, sort='-y'),
+            x=x,
             y=y,
             tooltip=[x, y]
         )
 
-    elif chart_type == "line":
+    elif chart_type == "Line":
         chart = alt.Chart(data).mark_line(point=True).encode(
             x=x,
-            y=y,
-            tooltip=[x, y]
+            y=y
         )
 
-    elif chart_type == "pie":
+    elif chart_type == "Pie":
         chart = alt.Chart(data).mark_arc().encode(
             theta=y,
-            color=x,
-            tooltip=[x, y]
-        )
-
-    elif chart_type == "scatter":
-        chart = alt.Chart(data).mark_point(size=100).encode(
-            x=x,
-            y=y,
-            tooltip=[x, y]
-        )
-
-    elif chart_type == "heatmap":
-        chart = alt.Chart(data).mark_rect().encode(
-            x=x,
-            y=y,
-            color=y
+            color=x
         )
 
     else:
@@ -190,37 +127,96 @@ def render_chart(spec, data, x, y):
 
 
 # ---------------------------
-# UI INPUT
+# MAIN APP
 # ---------------------------
 if uploaded:
+
     df = load_data(uploaded)
 
-    st.write("Dataset Preview:")
+    st.subheader("Dataset Preview")
     st.dataframe(df.head())
 
-    desc = st.text_area("Describe your chart")
+    # ---------------------------
+    # MODE SWITCH
+    # ---------------------------
+    mode = st.radio("Choose Mode", ["Guided Mode", "AI Mode"])
 
-    if st.button("Generate chart"):
+    # ===========================
+    # ✅ GUIDED MODE
+    # ===========================
+    if mode == "Guided Mode":
 
-        spec = interpret_request(desc, df)
+        st.subheader("Build your chart")
 
-        st.subheader("Detected Interpretation")
-        st.json(spec)
+        chart_type = st.selectbox(
+            "Chart Type",
+            ["Bar", "Line", "Pie"]
+        )
 
-        errors = validate_spec(spec, df)
+        # numeric columns
+        numeric_cols = df.select_dtypes(include="number").columns.tolist()
 
-        if errors:
-            st.error("❌ " + " | ".join(errors))
+        # categorical columns
+        cat_cols = df.select_dtypes(exclude="number").columns.tolist()
 
-        else:
-            data, x, y = process_data(df, spec)
+        metric = st.selectbox("Metric (Y-axis)", numeric_cols)
 
-            st.success("✅ Chart generated successfully")
+        dimension = st.selectbox("Dimension (X-axis)", cat_cols)
 
-            chart = render_chart(spec, data, x, y)
+        aggregation = st.selectbox(
+            "Aggregation",
+            ["sum", "mean", "count"]
+        )
+
+        if st.button("Generate chart:
+
+"):
+            data = process_data(df, metric, dimension, aggregation)
+
+            st.success("✅ Chart created")
+
+            chart = render_chart(chart_type, data, dimension, "value")
             st.altair_chart(chart, use_container_width=True)
 
             st.dataframe(data)
 
+    # ===========================
+    # ✅ AI MODE
+    # ===========================
+    else:
+
+        desc = st.text_area("Describe your chart")
+
+        if st.button("Generate chart"):
+
+            spec = interpret_request(desc, df)
+
+            st.subheader("AI Interpretation")
+            st.json(spec)
+
+            # validation
+            if not spec["metric"] or not spec["dimension"]:
+                st.error("❌ Could not understand request clearly")
+            else:
+                data = process_data(
+                    df,
+                    spec["metric"],
+                    spec["dimension"],
+                    spec["aggregation"]
+                )
+
+                chart = render_chart(
+                    spec["chart_type"],
+                    data,
+                    spec["dimension"],
+                    "value"
+                )
+
+                st.success("✅ Chart generated")
+                st.altair_chart(chart, use_container_width=True)
+
+                st.dataframe(data)
+
 else:
     st.info("Upload a dataset to start")
+``
