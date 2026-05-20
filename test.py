@@ -19,7 +19,6 @@ uploaded = st.file_uploader("Upload CSV file", type=["csv"])
 def load_data(file):
     return pd.read_csv(file)
 
-
 # ---------------------------
 # AI INTERPRETATION (IMPROVED ✅)
 # ---------------------------
@@ -34,13 +33,11 @@ def interpret_request(desc, df):
         "aggregation": "sum"
     }
 
-    # ✅ Chart detection (EN + FR)
+    # ✅ Chart type detection
     if any(x in desc for x in ["line", "courbe"]):
         spec["chart_type"] = "Line"
     elif any(x in desc for x in ["pie", "camembert"]):
         spec["chart_type"] = "Pie"
-    elif "heatmap" in desc:
-        spec["chart_type"] = "Heatmap"
     else:
         spec["chart_type"] = "Bar"
 
@@ -61,7 +58,7 @@ def interpret_request(desc, df):
         if k in desc:
             desc = desc.replace(k, v.lower())
 
-    # ✅ Aggregation detection
+    # ✅ Aggregation
     if any(x in desc for x in ["count", "nombre"]):
         spec["aggregation"] = "count"
     elif any(x in desc for x in ["mean", "moyenne"]):
@@ -69,15 +66,18 @@ def interpret_request(desc, df):
     elif any(x in desc for x in ["sum", "somme", "total"]):
         spec["aggregation"] = "sum"
 
-    # ✅ Detect columns
+    # ✅ Detect columns (SAFE: ignore bad column)
     for col in df.columns:
+        if col == "MixedColumn":  # ❌ skip invalid column
+            continue
+
         if col.lower() in desc:
             if spec["metric"] is None:
                 spec["metric"] = col
             else:
                 spec["dimension"] = col
 
-    # ✅ FIX: text column → COUNT
+    # ✅ Fix: text metric → count
     if spec["metric"] and not pd.api.types.is_numeric_dtype(df[spec["metric"]]):
         spec["aggregation"] = "count"
 
@@ -127,13 +127,6 @@ def render_chart(chart_type, data, x, y):
             tooltip=[x, y]
         )
 
-    elif chart_type == "Heatmap":
-        chart = alt.Chart(data).mark_rect().encode(
-            x=x,
-            y=y,
-            color=y
-        )
-
     else:
         chart = alt.Chart(data).mark_bar().encode(x=x, y=y)
 
@@ -153,7 +146,7 @@ if uploaded:
     mode = st.radio("Choose Mode", ["Guided Mode", "AI Mode"])
 
     # =========================
-    # ✅ GUIDED MODE
+    # ✅ GUIDED MODE (SAFE ✅)
     # =========================
     if mode == "Guided Mode":
 
@@ -161,8 +154,18 @@ if uploaded:
 
         chart_type = st.selectbox("Chart Type", ["Bar", "Line", "Pie"])
 
-        numeric_cols = df.select_dtypes(include="number").columns.tolist()
-        categorical_cols = df.select_dtypes(exclude="number").columns.tolist()
+        # ✅ Safe numeric columns
+        numeric_cols = [
+            col for col in df.columns
+            if pd.api.types.is_numeric_dtype(df[col])
+        ]
+
+        # ✅ Safe categorical columns (exclude MixedColumn)
+        categorical_cols = [
+            col for col in df.columns
+            if not pd.api.types.is_numeric_dtype(df[col])
+            and col != "MixedColumn"
+        ]
 
         if not numeric_cols:
             st.error("No numeric columns found")
@@ -197,10 +200,10 @@ if uploaded:
 
 ---
 
-### 📘 Examples (EN)
+### 📘 Working Examples (EN)
 
 - Bar chart of sum Sales by Region  
-- Bar chart of count Description by Region  
+- Bar chart of sum Profit by Region  
 - Line chart of sum Sales by Date  
 - Pie chart of sum Sales by Region  
 
@@ -209,21 +212,20 @@ if uploaded:
 ### 📗 Exemples (FR)
 
 - Barres somme ventes par région  
-- Barres nombre description par région  
+- Barres somme profit par région  
 - Courbe somme ventes par date  
 - Camembert somme ventes par région  
 """)
 
-        # ✅ Working predefined examples
         example = st.selectbox(
-            "Choose an example (optional)",
+            "Choose an example",
             [
                 "",
                 "Bar chart of sum Sales by Region",
-                "Bar chart of count Description by Region",
+                "Bar chart of sum Profit by Region",
                 "Line chart of sum Sales by Date",
                 "Pie chart of sum Sales by Region",
-                "Camembert somme ventes par région"
+                "Barres somme ventes par région"
             ]
         )
 
@@ -264,6 +266,7 @@ if uploaded:
 
                     st.success("✅ Chart generated successfully")
                     st.altair_chart(chart, use_container_width=True)
+
                     st.dataframe(data)
 
 else:
