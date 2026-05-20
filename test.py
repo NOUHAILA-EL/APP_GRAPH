@@ -8,7 +8,7 @@ import altair as alt
 st.set_page_config(page_title="Cap Visual Intelligence", layout="wide")
 
 st.title("Cap Visual Intelligence powered by GenAI")
-st.write("Upload your dataset, then choose Guided Mode or AI Mode.")
+st.write("Upload your dataset, then use Guided Mode or AI Mode to create charts.")
 
 # ---------------------------
 # LOAD DATA
@@ -19,10 +19,12 @@ uploaded = st.file_uploader("Upload CSV file", type=["csv"])
 def load_data(file):
     return pd.read_csv(file)
 
+
 # ---------------------------
-# AI INTERPRETATION
+# AI INTERPRETATION (IMPROVED ✅)
 # ---------------------------
 def interpret_request(desc, df):
+
     desc = desc.lower()
 
     spec = {
@@ -32,38 +34,42 @@ def interpret_request(desc, df):
         "aggregation": "sum"
     }
 
-    # Chart type detection
-    if "line" in desc:
+    # ✅ Chart detection (EN + FR)
+    if any(x in desc for x in ["line", "courbe"]):
         spec["chart_type"] = "Line"
-    elif "pie" in desc or "camembert" in desc:
+    elif any(x in desc for x in ["pie", "camembert"]):
         spec["chart_type"] = "Pie"
     elif "heatmap" in desc:
         spec["chart_type"] = "Heatmap"
+    else:
+        spec["chart_type"] = "Bar"
 
-    # Synonyms mapping
+    # ✅ Synonyms mapping
     synonyms = {
         "revenue": "Sales",
         "ventes": "Sales",
+        "sales": "Sales",
         "profit": "Profit",
         "bénéfice": "Profit",
         "region": "Region",
         "région": "Region",
-        "description": "Description"
+        "description": "Description",
+        "date": "Date"
     }
 
     for k, v in synonyms.items():
         if k in desc:
             desc = desc.replace(k, v.lower())
 
-    # Aggregation detection
-    if "count" in desc or "nombre" in desc:
+    # ✅ Aggregation detection
+    if any(x in desc for x in ["count", "nombre"]):
         spec["aggregation"] = "count"
-    elif "mean" in desc:
+    elif any(x in desc for x in ["mean", "moyenne"]):
         spec["aggregation"] = "mean"
-    elif "sum" in desc or "total" in desc:
+    elif any(x in desc for x in ["sum", "somme", "total"]):
         spec["aggregation"] = "sum"
 
-    # Detect metric & dimension
+    # ✅ Detect columns
     for col in df.columns:
         if col.lower() in desc:
             if spec["metric"] is None:
@@ -71,7 +77,7 @@ def interpret_request(desc, df):
             else:
                 spec["dimension"] = col
 
-    # FIX: text column → COUNT
+    # ✅ FIX: text column → COUNT
     if spec["metric"] and not pd.api.types.is_numeric_dtype(df[spec["metric"]]):
         spec["aggregation"] = "count"
 
@@ -144,7 +150,6 @@ if uploaded:
     st.subheader("Dataset Preview")
     st.dataframe(df.head())
 
-    # ✅ MODE SELECTION
     mode = st.radio("Choose Mode", ["Guided Mode", "AI Mode"])
 
     # =========================
@@ -166,6 +171,7 @@ if uploaded:
         else:
             metric = st.selectbox("Metric (Y-axis)", numeric_cols)
             dimension = st.selectbox("Dimension (X-axis)", categorical_cols)
+
             aggregation = st.selectbox("Aggregation", ["sum", "mean", "count"])
 
             if st.button("Generate chart"):
@@ -186,36 +192,41 @@ if uploaded:
         st.subheader("Describe your chart")
 
         st.markdown("""
-Upload your dataset, describe the visual (EN/FR), then click Generate chart.
+### ✅ Supported format  
+👉 **Chart + aggregation + metric + by + dimension**
+
+---
 
 ### 📘 Examples (EN)
-- Bar chart of count of Description grouped by Region; sort descending by revenue and profit  
-- Line chart of Sales over Date; rolling average 7; color by Region  
-- Pie of sum of Sales by Region  
-- Heatmap of sum of Profit by Region and Description  
-- Table of sum of Sales by Region  
+
+- Bar chart of sum Sales by Region  
+- Bar chart of count Description by Region  
+- Line chart of sum Sales by Date  
+- Pie chart of sum Sales by Region  
+
+---
 
 ### 📗 Exemples (FR)
-- Un camembert de la somme des ventes par région  
-- Barres du nombre de Description par Région; tri descendant par bénéfice  
-- Courbe des ventes sur Date  
-- Tableau de la somme des ventes par région  
+
+- Barres somme ventes par région  
+- Barres nombre description par région  
+- Courbe somme ventes par date  
+- Camembert somme ventes par région  
 """)
 
-        # ✅ Predefined options
+        # ✅ Working predefined examples
         example = st.selectbox(
             "Choose an example (optional)",
             [
                 "",
-                "Bar chart of count of Description grouped by Region",
-                "Line chart of Sales over Date",
-                "Pie of sum of Sales by Region",
-                "Heatmap of sum of Profit by Region and Description",
-                "Table of sum of Sales by Region"
+                "Bar chart of sum Sales by Region",
+                "Bar chart of count Description by Region",
+                "Line chart of sum Sales by Date",
+                "Pie chart of sum Sales by Region",
+                "Camembert somme ventes par région"
             ]
         )
 
-        # ✅ Session memory
         if "ai_input" not in st.session_state:
             st.session_state.ai_input = ""
 
@@ -228,7 +239,6 @@ Upload your dataset, describe the visual (EN/FR), then click Generate chart.
 
             if not desc.strip():
                 st.warning("Please enter a description")
-
             else:
                 spec = interpret_request(desc, df)
 
@@ -253,7 +263,6 @@ Upload your dataset, describe the visual (EN/FR), then click Generate chart.
                     )
 
                     st.success("✅ Chart generated successfully")
-
                     st.altair_chart(chart, use_container_width=True)
                     st.dataframe(data)
 
